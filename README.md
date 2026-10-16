@@ -195,3 +195,107 @@ You will notice that `changedStatus` registers the change that happened.
 }
 ```
 
+## Levoit 100S / Vital 100S notes
+
+The original guide targets the Levoit Core 200S. The Core 100S / Vital 100S uses the same Vesync V2 MQTT protocol, so the same DNS-redirect method applies. Differences to expect:
+
+* **Fan levels:** The 200S uses levels 1-3. The 100S commonly supports levels 1-5. Start at level 1 and work up to find your device's max level.
+* **Device ID:** The `[LEVOITID]` (the device `cid`) must be discovered per device. Use the `discover` command below.
+* **Payloads:** The `setLevel`, `setPurifierMode`, `setDisplay`, `addTimer`, `getTimer`, `getSchedule` methods shown above should work on V2 devices including the 100S, but confirm each against your device's actual responses.
+
+## Python controller (`levoit_mqtt.py`)
+
+A small Python MQTT client is included (`levoit_mqtt.py`, requires `paho-mqtt`). It sends V2 bypass commands and can listen to discover your device ID.
+
+Install:
+```
+pip install -r requirements.txt
+```
+
+1. Discover your device ID (leave it running while you press buttons in the VeSync app):
+```
+python levoit_mqtt.py discover --duration 30
+```
+Note the `cid` value printed for `NEW DEVICE ID`.
+
+2. Control your 100S:
+```
+# Set fan to level 3
+python levoit_mqtt.py --device-id <CID> level 3
+
+# Enable sleep mode
+python levoit_mqtt.py --device-id <CID> mode sleep
+
+# Turn display off
+python levoit_mqtt.py --device-id <CID> display off
+
+# Add a 30-minute off timer
+python levoit_mqtt.py --device-id <CID> timer off 1800
+
+# Read timers
+python levoit_mqtt.py --device-id <CID> get-timer
+
+# Print most recent status message
+python levoit_mqtt.py --device-id <CID> state
+```
+
+Options: `--host`, `--port`, `--username`, `--password`, `--tls`.
+
+### Home Assistant example for the 100S
+
+Replace `<LEVOITID>` with your discovered device ID. Adjust `level` values (1-5) to match what your 100S accepts.
+
+```yaml
+mqtt:
+  button:
+    - name: "Fan level 1"
+      unique_id: fan_lvl_1_switch_btn
+      command_topic: "mqtt/<LEVOITID>/v2/bypass"
+      payload_press: '{"traceId": "123456","method": "bypassV2","debugMode": false,"payload": {"data": {"id": 0,"level": 1,"type": "wind"},"method": "setLevel","source": "APP"}}'
+      qos: 0
+      retain: true
+      entity_category: "config"
+    - name: "Fan level 3"
+      unique_id: fan_lvl_3_switch_btn
+      command_topic: "mqtt/<LEVOITID>/v2/bypass"
+      payload_press: '{"traceId": "123456","method": "bypassV2","debugMode": false,"payload": {"data": {"id": 0,"level": 3,"type": "wind"},"method": "setLevel","source": "APP"}}'
+      qos: 0
+      retain: true
+      entity_category: "config"
+    - name: "sleepmode"
+      unique_id: fan_lvl_sleep_switch_btn
+      command_topic: "mqtt/<LEVOITID>/v2/bypass"
+      payload_press: '{"traceId": "123456","method": "bypassV2","debugMode": false,"payload": {"data": {"mode":"sleep"},"method":"setPurifierMode","source": "APP"}}'
+      qos: 0
+      retain: true
+      entity_category: "config"
+    - name: "display off"
+      unique_id: fan_lvl_disp_off_switch_btn
+      command_topic: "mqtt/<LEVOITID>/v2/bypass"
+      payload_press: '{"traceId": "123456","method": "bypassV2","debugMode":false,"payload":{"data":{"state":false},"method":"setDisplay","source": "APP"}}'
+      qos: 0
+      retain: true
+      entity_category: "config"
+    - name: "display on"
+      unique_id: fan_lvl_disp_on_switch_btn
+      command_topic: "mqtt/<LEVOITID>/v2/bypass"
+      payload_press: '{"traceId": "123456","method": "bypassV2","debugMode":false,"payload":{"data":{"state":true},"method":"setDisplay","source": "APP"}}'
+      qos: 0
+      retain: true
+      entity_category: "config"
+```
+
+### Example of reading a value from the MQTT broker and showing the data in HA
+
+```yaml
+mqtt:
+  sensor:
+    - name: "Levoit 100S Fan state"
+      unique_id: "xxxx-xxxx-xxx-xxxx-xxxxx"
+      state_topic: "mqtt/<LEVOITID>/v2/req"
+      value_template: >-
+        "{{ value_json.data.changedStatus.displayPower
+        if value_json.data.changedStatus.displayPower is defined
+        else value_json.data.unchangedStatus.displayPower }}"
+```
+
